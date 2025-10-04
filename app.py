@@ -80,12 +80,18 @@ if st.button('Predecir'):
     processed_input = processed_input[expected_columns]
 
 
-    # Make prediction on the processed input
-    try:
-        prediction_input = model.predict(processed_input)
-        st.subheader('Resultado de la Predicción para tu Entrada:')
-        st.write(prediction_input[0])
-    except Exception as e:
-        st.error(f"Error durante la predicción: {e}")
+    ## 🔹 Alinear columnas con las usadas en el entrenamiento
+    if hasattr(model, 'feature_names_in_'):
+        processed_input = processed_input.reindex(columns=model.feature_names_in_, fill_value=0)
+    else:
+        st.warning("Advertencia: El modelo no tiene atributo 'feature_names_in_'. Verifica las columnas manualmente.")
+
+    # 🔹 Realizar la predicción
+    prediction_input = model.predict(processed_input)
+
+    # 🔹 Mostrar el resultado
+    st.subheader('Resultado de la Predicción para tu Entrada:')
+    st.write(prediction_input[0])
+
 
 
