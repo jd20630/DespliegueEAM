@@ -89,33 +89,3 @@ if st.button('Predecir'):
         st.error(f"Error durante la predicción: {e}")
 
 
-# --- Código para ejecutar en Colab con ngrok ---
-# Este código solo se ejecuta si el script se corre directamente (no en Streamlit)
-if __name__ == '__main__':
-    # Instructions to run the Streamlit app in Colab
-    # Ensure pyngrok is installed: !pip install pyngrok
-
-    # Fetch the ngrok authtoken from Colab secrets
-    # Ensure you have added your ngrok authtoken to the Colab secrets
-    # named 'NGROK_AUTHTOKEN'
-    NGROK_AUTHTOKEN = userdata.get('NGROK_AUTHTOKEN')
-    if not NGROK_AUTHTOKEN:
-        st.error("NGROK_AUTHTOKEN not found in Colab secrets. Please add it.")
-    else:
-        # Set ngrok authtoken environment variable
-        os.environ["NGROK_AUTHTOKEN"] = NGROK_AUTHTOKEN
-
-        # Run the Streamlit app in the background
-        os.system("streamlit run app.py &")
-
-        # Connect to port 8501 (default Streamlit port) using pyngrok
-        # You might need to wait a few seconds for Streamlit to start
-        import time
-        time.sleep(5) # Give Streamlit a few seconds to start
-
-        try:
-            from pyngrok import ngrok
-            public_url = ngrok.connect(addr='8501', bind_tls=True)
-            st.write(f'¡Tu aplicación Streamlit está lista! Accede a ella a través de esta URL: {public_url}')
-        except Exception as e:
-            st.error(f"Error al iniciar ngrok o conectar con Streamlit: {e}")
