@@ -2,7 +2,6 @@ import pandas as pd
 import joblib
 import streamlit as st
 import os
-from google.colab import userdata
 
 # Configurar el título de la aplicación
 st.title('Predicción de Aprobación de Curso')
