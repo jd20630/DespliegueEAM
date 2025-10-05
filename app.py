@@ -1,97 +1,85 @@
+import streamlit as st
 import pandas as pd
 import joblib
-import streamlit as st
-import os
 
-# Configurar el título de la aplicación
-st.title('Predicción de Aprobación de Curso')
-
-# --- Cargar Recursos ---
-# Asegúrate de que estos archivos estén en el directorio correcto accesibles desde donde ejecutas la app
+# Load the saved artifacts
 try:
-    # Load the dataset
-    file_path = 'Aprobacion curso 2019 fut.xlsx'
-    df = pd.read_excel(file_path, sheet_name=1) # Second sheet is index 1
-
-    # Load the encoder, scaler, and model
     onehot_encoder = joblib.load('onehot_encoder.joblib')
     minmax_scaler = joblib.load('minmax_scaler.joblib')
     model = joblib.load('best_stacking_model.joblib')
-
-    st.success("Dataset, encoder, scaler, and model loaded successfully!")
-
 except FileNotFoundError:
-    st.error("Error: Asegúrate de que los archivos 'Aprobacion curso 2019 fut.xlsx', 'onehot_encoder.joblib', 'minmax_scaler.joblib' y 'best_stacking_model.joblib' estén en el directorio correcto.")
-    st.stop() # Detiene la ejecución si no se encuentran los archivos
-
-
-# --- Interfaz de Usuario para Predicción Individual ---
-st.subheader('Realizar una Predicción Individual')
-
-# Input fields for user
-# Ensure the options for selectbox match the categories the encoder was trained on
-if hasattr(onehot_encoder, 'categories_'):
-    felder_options = onehot_encoder.categories_[0]
-    felder_input = st.selectbox('Selecciona el tipo de Felder:', felder_options)
-else:
-    st.error("Error: No se pudieron obtener las categorías del encoder. Asegúrate de que el archivo 'onehot_encoder.joblib' es válido.")
+    st.error("Error: Make sure 'onehot_encoder.joblib', 'minmax_scaler.joblib', and 'best_stacking_model.joblib' are in the same directory.")
     st.stop()
 
-examen_input = st.number_input('Introduce la nota del Examen de Admisión de la Universidad:', min_value=0.0, max_value=10.0, step=0.01) # Adjusted max_value for typical university scales
+# Set up the Streamlit app structure
+st.title('Student Course Approval Prediction')
+st.write('This application predicts student course approval based on their Felder style and university entrance exam score.')
 
-# --- Lógica de Preprocesamiento y Predicción ---
-if st.button('Predecir'):
-    # Create a DataFrame from user input
-    input_data = pd.DataFrame({'Felder': [felder_input], 'Examen_admisión_Universidad': [examen_input]})
+# Create input fields
+felder_style = st.selectbox(
+    'Select your Felder style:',
+    ('activo', 'visual', 'equilibrio', 'intuitivo', 'reflexivo', 'secuencial', 'sensorial', 'verbal')
+)
 
-    # Apply one-hot encoding to the 'Felder' input
-    felder_encoded_input = onehot_encoder.transform(input_data[['Felder']])
-    encoded_df_input = pd.DataFrame(felder_encoded_input, columns=onehot_encoder.get_feature_names_out(['Felder']))
+examen_score = st.number_input(
+    'Enter your University Entrance Exam Score:',
+    min_value=0.0,
+    max_value=6.0,
+    value=3.0,
+    step=0.01
+)
 
-    # Apply min-max scaling to the 'Examen_admisión_Universidad' input
-    # Handle potential errors if input is outside the original scaler range
+# Preprocess the input data
+if st.button('Predict'):
+    # Create a DataFrame from the inputs
+    input_df = pd.DataFrame([[felder_style, examen_score]], columns=['Felder', 'Examen_admisión_Universidad'])
+
+    # Apply one-hot encoding to 'Felder'
+    # We need to reshape the column to be a 2D array as required by the encoder
+    felder_encoded = onehot_encoder.transform(input_df[['Felder']])
+
+    # Convert the encoded output to a DataFrame
+    # We need to get the feature names from the encoder to name the new columns
+    encoded_df = pd.DataFrame(felder_encoded, columns=onehot_encoder.get_feature_names_out(['Felder']))
+
+    # Drop the original 'Felder' column from the input DataFrame
+    input_df = input_df.drop('Felder', axis=1)
+
+    # Concatenate the original DataFrame with the encoded DataFrame
+    input_df_processed = pd.concat([input_df, encoded_df], axis=1)
+
+    # Apply the scaler to the 'Examen_admisión_Universidad' column
+    # We need to reshape the column to be a 2D array as required by the scaler
+    input_df_processed['Examen_admisión_Universidad_scaled'] = minmax_scaler.transform(input_df_processed[['Examen_admisión_Universidad']])
+
+    # Drop the original 'Examen_admisión_Universidad' column
+    input_df_processed = input_df_processed.drop('Examen_admisión_Universidad', axis=1)
+
+    # Ensure the columns are in the same order as the training data used by the model
+    # The df_encoded DataFrame from the notebook has the correct order
+    # Assuming df_encoded was the final processed DataFrame before training
+    # Recreate df_encoded column order based on the existing kernel variable
+    expected_columns = ['Felder_activo', 'Felder_equilibrio', 'Felder_intuitivo', 'Felder_reflexivo', 'Felder_secuencial', 'Felder_sensorial', 'Felder_verbal', 'Felder_visual', 'Examen_admisión_Universidad_scaled']
+
+    # Reindex the processed input DataFrame to match the expected columns
     try:
-        examen_scaled_input = minmax_scaler.transform(input_data[['Examen_admisión_Universidad']])
-    except ValueError as e:
-        st.warning(f"Advertencia de escalado: {e}. El valor de 'Examen_admisión_Universidad' puede estar fuera del rango visto durante el entrenamiento del scaler.")
-        # Optionally, clamp the value or handle as appropriate for your model
-        st.stop() # Stop for now, but you might want a different behavior
+        input_df_final = input_df_processed[expected_columns]
+    except KeyError as e:
+        st.error(f"Column mismatch after preprocessing: {e}")
+        st.stop()
 
+    # Make prediction
+    prediction = model.predict(input_df_final)
 
-    # Create the processed input DataFrame with the correct column order
-    # Ensure all Felder categories are present, even if 0, to match model expectations
-    all_felder_cols = onehot_encoder.get_feature_names_out(['Felder'])
-    processed_input = pd.DataFrame(0.0, index=[0], columns=['Examen_admisión_Universidad_scaled'] + list(all_felder_cols))
-
-    # Fill in the scaled examen score
-    processed_input['Examen_admisión_Universidad_scaled'] = examen_scaled_input[0][0]
-
-    # Fill in the one-hot encoded Felder value
-    for col in encoded_df_input.columns:
-        if col in processed_input.columns:
-             processed_input[col] = encoded_df_input[col].iloc[0]
-
-    # Ensure the order of columns in processed_input matches the order expected by the model
-    # This is crucial for correct prediction. You might need to verify the exact order
-    # from your model training process if the order below is not correct.
-    expected_columns = ['Examen_admisión_Universidad_scaled', 'Felder_activo', 'Felder_equilibrio',
-                        'Felder_intuitivo', 'Felder_reflexivo', 'Felder_secuencial',
-                        'Felder_sensorial', 'Felder_verbal', 'Felder_visual'] # Example order, verify with your model
-    processed_input = processed_input[expected_columns]
-
-
-    ## 🔹 Alinear columnas con las usadas en el entrenamiento
-    if hasattr(model, 'feature_names_in_'):
-        processed_input = processed_input.reindex(columns=model.feature_names_in_, fill_value=0)
+    # Display the prediction
+    st.subheader('Prediction:')
+    if prediction[0] == 'si':
+        st.success('The student is predicted to approve the course.')
     else:
-        st.warning("Advertencia: El modelo no tiene atributo 'feature_names_in_'. Verifica las columnas manualmente.")
+        st.error('The student is predicted not to approve the course.')
 
-    # 🔹 Realizar la predicción
-    prediction_input = model.predict(processed_input)
-
-    # 🔹 Mostrar el resultado
-    st.subheader('Resultado de la Predicción para tu Entrada:')
-    st.write(prediction_input[0])
-
-
-
+# Instructions on how to run the application:
+# 1. Save this file as app.py.
+# 2. Open a terminal or command prompt.
+# 3. Navigate to the directory where app.py, onehot_encoder.joblib, minmax_scaler.joblib, and best_stacking_model.joblib are saved.
+# 4. Run the command: streamlit run app.py
